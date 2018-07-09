@@ -1,0 +1,215 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hyperledger-fabric.fullname" . }}-bootstrap
+  labels:
+    app.kubernetes.io/name: {{ include "hyperledger-fabric.chart" . }}
+    app.kubernetes.io/version: {{ .Chart.Version }}
+    app: {{ include "hyperledger-fabric.name" . }}
+    chart: {{ include "hyperledger-fabric.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+    component: bootstrap
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "hyperledger-fabric.name" . }}
+      chart: {{ include "hyperledger-fabric.chart" . }}
+      release: {{ .Release.Name }}
+      heritage: {{ .Release.Service }}
+      component: bootstrap
+  template:
+    metadata:
+      labels:
+        app: {{ include "hyperledger-fabric.name" . }}
+        chart: {{ include "hyperledger-fabric.chart" . }}
+        release: {{ .Release.Name }}
+        heritage: {{ .Release.Service }}
+        component: bootstrap
+    spec:
+      volumes:
+      - name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+        persistentVolumeClaim:
+          claimName: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+      - name: {{ include "hyperledger-fabric.fullname" . }}-crypto-config
+        configMap:
+          name:  {{ include "hyperledger-fabric.fullname" . }}-crypto-config
+      - name: {{ include "hyperledger-fabric.fullname" . }}-configtx
+        configMap:
+          name: {{ include "hyperledger-fabric.fullname" . }}-configtx
+      initContainers:
+      - name: {{/*{{ .Chart.Name }}-*/}}get-binaries
+{{/* The script uses curl too; so switching to Alpine and install curl */}}
+        image: alpine
+        imagePullPolicy: IfNotPresent
+        command:
+        - ash
+        - -v
+        - -x
+        - -c
+        - |
+          echo Using Hyperledger Fabric bash installer to pull binaries
+
+          # Install curl
+          # Debian
+          #export DEBIAN_FRONTEND=noninteractive
+          #apt-get update && apt-get install -y curl
+          # Bash
+          apk update && apk add --no-cache bash curl
+
+          # Use /shared as working directory
+          cd /shared
+
+          # sed is used to overcome a bug in the script so as to not download Docker images
+          # bootstrap.sh is materialized to /tmp not to /shared
+          curl \
+          --silent \
+          --show-error \
+          --location \
+          https://goo.gl/6wtTN5 | \
+          sed \
+          --expression="s|DOCKER=true|DOCKER=false|g" \
+          --expression="s|SAMPLES=true|SAMPLES=false|g" | \
+          bash -s ${FABRIC_BINARIES_VERSION}
+          
+          if [ -f /shared/bin/configtxgen ] && [ -f /shared/bin/cryptogen ]
+          then
+            echo "configtxgen & cryptogen added to /shared"
+            touch /shared/binaries_downloaded
+            exit 0;
+          else
+            echo "Either configtxgen or cryptogen is missing"
+            exit 1;
+          fi
+          echo Done
+        env:
+        - name: FABRIC_BINARIES_VERSION
+          value: {{ .Values.fabric.binaries }}
+        volumeMounts:
+        - mountPath: /shared
+          name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+      - name: {{/*{{ .Chart.Name }}-*/}}crypto-gen
+        image: alpine
+        imagePullPolicy: IfNotPresent
+        command:
+        - ash
+        - -c
+        - |
+          echo Calling cryptogen
+
+          while [ ! -f /shared/bin/cryptogen ]; do
+            echo Awaiting cryptogen binary
+            sleep 15s
+          done
+          
+          # Copy binary out of /shared
+          cp /shared/bin/cryptogen /tmp
+
+          /tmp/cryptogen generate \
+          --config=/config/crypto-config.yaml \
+          --output=/shared/crypto-config
+
+          echo Done
+        volumeMounts:
+        - mountPath: /shared
+          name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+        - mountPath: /config
+          name: {{ include "hyperledger-fabric.fullname" . }}-crypto-config
+      - name: {{/*{{ .Chart.Name }}-*/}}configtxgen
+        image: alpine
+        imagePullPolicy: IfNotPresent
+        command:
+        - ash
+        - -c
+        - |
+          echo Calling configtxgen
+
+          while [ ! -f /shared/bin/configtxgen ]; do
+            echo Awaiting configtxgen binary
+            sleep 15s
+          done
+
+          # Copy binary out of /shared
+          cp /shared/bin/configtxgen /tmp
+
+          # Create Orderer Genesis Block
+          # FABRIC_CFG_PATH references location of configtxgen.yaml
+          # TwoOrgsOrdererGenesis must match configtx.yaml profile
+          echo Creating Orderer Genersis Block
+
+          export FABRIC_CFG_PATH=/config && \
+          /tmp/configtxgen \
+          -profile ${ORDERER_PROFILE} \
+          -outputBlock /shared/${ARTIFACTS}/genesis.block \
+          -channelID ${CHANNEL_ID}
+
+          # Create Channel Configuration Transaction
+          echo Creating Channel Configuration Transaction
+          /tmp/configtxgen \
+          -profile ${CHANNEL_PROFILE} \
+          -outputCreateChannelTx /shared/channel-artifacts/channel.tx \
+          -channelID ${CHANNEL_ID}
+
+          echo Done
+        env:
+        - name: CHANNEL_ID
+          value: channel
+        - name: CHANNEL_PROFILE
+          value: TwoOrgsChannel
+        - name: ORDERER_PROFILE
+          value: TwoOrgsOrdererGenesis
+        volumeMounts:
+        - mountPath: /shared
+          name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+        - mountPath: /config
+          name: {{ include "hyperledger-fabric.fullname" . }}-configtx
+{{- range $org := .Values.configtx.Organizations }}
+      - name: anchor-{{ $org.ID | lower }}
+        image: alpine
+        imagePullPolicy: IfNotPresent
+        command:
+        - ash
+        - -c
+        - |
+          echo Define Anchor Peer for ${ORG_ID}
+
+          while [ ! -f /shared/bin/configtxgen ]; do
+            echo Awaiting
+            sleep 15s
+          done
+          
+          # Copy binary out of /shared
+          cp /shared/bin/configtxgen /tmp
+
+          /tmp/configtxgen \
+          -profile ${CHANNEL_PROFILE} \
+          -outputAnchorPeersUpdate ./channel-artifacts/${ORG_ID}.anchors.tx \
+          -channelID ${CHANNEL_ID} \
+          -asOrg ${ORG_ID}
+
+          echo Done
+        env:
+        - name: CHANNEL_ID
+          value: channel
+        - name: CHANNEL_PROFILE
+          value: TwoOrgsChannel
+        - name: ORG_ID
+          value: {{ $org.ID }}
+        volumeMounts:
+        - mountPath: /shared
+{{/* NB Within the range, need to use "$" instead of "." to scope the include correctly */}}  
+          name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+{{- end }}
+      containers:
+      - name: {{/*{{ .Chart.Name }}-*/}}bootstrapped
+        image: alpine
+        imagePullPolicy: IfNotPresent
+        command:
+        - ash
+        - -c
+        - |
+          touch /shared/bootstrapped
+        volumeMounts:
+        - mountPath: /shared
+          name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc

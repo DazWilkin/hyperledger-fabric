@@ -1,0 +1,25 @@
+# Debugging
+
+#bootstrap-deployment.yaml
+ca-deployment.yaml
+orderer-deployment.yaml
+peer-deployment.yaml
+
+.DS_Store
+# Common VCS dirs
+.git/
+.gitignore
+.bzr/
+.bzrignore
+.hg/
+.hgignore
+.svn/
+# Common backup files
+*.swp
+*.bak
+*.tmp
+*~
+# Various IDEs
+.project
+.idea/
+*.tmproj

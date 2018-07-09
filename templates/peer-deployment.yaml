@@ -1,0 +1,109 @@
+{{/*
+      Iterate over each Org defined in cryptoconfig
+      This should match the Organizations defined in configtx
+      Because of ranges, need to explicitly reference root ($)
+*/}}
+{{- range $org := .Values.cryptoconfig.PeerOrgs }}
+{{- $name := $org.Name | lower }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hyperledger-fabric.fullname" $ }}-org-{{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ include "hyperledger-fabric.chart" $ }}
+    app.kubernetes.io/version: {{ $.Chart.Version }}
+    app: {{ include "hyperledger-fabric.name" $ }}
+    chart: {{ include "hyperledger-fabric.chart" $ }}
+    release: {{ $.Release.Name }}
+    heritage: {{ $.Release.Service }}
+    component: org-{{ $name }}
+spec:
+  replicas: {{ $.Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "hyperledger-fabric.name" $ }}
+      chart: {{ include "hyperledger-fabric.chart" $ }}
+      release: {{ $.Release.Name }}
+      heritage: {{ $.Release.Service }}
+      component: org-{{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "hyperledger-fabric.name" $ }}
+        chart: {{ include "hyperledger-fabric.chart" $ }}
+        release: {{ $.Release.Name }}
+        heritage: {{ $.Release.Service }}
+        component: org-{{ $name }}
+    spec:
+      volumes:
+      - name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+        persistentVolumeClaim:
+          claimName: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+      initContainers:
+      - name: await-bootstrapped
+        image: busybox
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - |
+          while [! -f /shared/bootstrapped ]; do
+            echo Awaiting /shared/bootstrapped
+            sleep 15s
+          done
+        volumeMounts:
+        - mountPath: /shared
+          name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+      containers:
+{{/*
+        Iterate over the peers in each Organizations
+        Number of peers is set in cryptoconfig.Template.Count
+        Need to disambiguate peers
+        Each is thus named by prefixing the iterator with 'peer'
+        And by using the Org's domain as defined in cryptoconfig
+        E.g. peerX.orgY.example.com
+*/}}
+{{- range $i := until ( $org.Template.Count | int)}}
+      - name: {{/*{{ .Chart.Name }}-*/}}peer{{ $i }}
+        image: "{{ $.Values.image.peer.repository }}:{{ $.Values.image.peer.tag }}"
+        imagePullPolicy: {{ $.Values.image.peer.pullPolicy }}
+        workingDir: /opt/gopath/src/github.com/hyperledger/fabric/peer
+        command:
+        - "peer node start"
+        env:
+        - name: CORE_VM_ENDPOINT
+          value: ///host/var/run/docker.sock
+        - name: CORE_PEER_ID
+          value: peer{{ $i }}.{{ $org.Domain }}
+        - name: CORE_PEER_ADDRESS
+          value: peer{{ $i }}.{{ $org.Domain }}:7051
+        - name: CORE_PEER_GOSSIP_EXTERNALENDPOINT
+          value: peer{{ $i }}.{{ $org.Domain }}:7051
+        - name: CORE_PEER_GOSSIP_BOOTSTRAP
+{{/* TODO:dazwilkin temporarily use peer1 as the bootstrap for the other peers */}}
+          value: peer1.org1.example.com:7051
+        - name: CORE_PEER_LOCALMSPID
+          value: Org1MSP
+        #- name: CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE
+        - name: CORE_LOGGING_LEVEL
+          value: INFO
+        - name: CORE_TLS_ENABLED
+          value: "false"
+        - name: CORE_PEER_GOSSIP_USELEADERELECTION
+          value: "true"
+        - name: CORE_PEER_GOSSIP_ORGLEADER
+          value: "false"
+        - name: CORE_PEER_PROFILE_ENABLED
+          value: "true"
+        ports:
+        - name: gprc
+          containerPort: 7051
+          protocol: TCP
+        - name: another
+          containerPort: 7053
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /shared
+          name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+{{- end }}
+{{- end }}

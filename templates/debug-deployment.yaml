@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hyperledger-fabric.fullname" . }}-debug
+  labels:
+    app.kubernetes.io/name: {{ include "hyperledger-fabric.chart" . }}
+    app.kubernetes.io/version: {{ .Chart.Version }}
+    app: {{ include "hyperledger-fabric.name" . }}
+    chart: {{ include "hyperledger-fabric.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+    component: debug
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "hyperledger-fabric.name" . }}
+      chart: {{ include "hyperledger-fabric.chart" . }}
+      release: {{ .Release.Name }}
+      heritage: {{ .Release.Service }}
+      component: debug
+  template:
+    metadata:
+      labels:
+        app: {{ include "hyperledger-fabric.name" . }}
+        chart: {{ include "hyperledger-fabric.chart" . }}
+        release: {{ .Release.Name }}
+        heritage: {{ .Release.Service }}
+        component: debug
+    spec:
+      volumes:
+      - name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+        persistentVolumeClaim:
+          claimName: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+      - name: {{ include "hyperledger-fabric.fullname" . }}-crypto-config
+        configMap:
+          name:  {{ include "hyperledger-fabric.fullname" . }}-crypto-config
+      - name: {{ include "hyperledger-fabric.fullname" . }}-configtx
+        configMap:
+          name: {{ include "hyperledger-fabric.fullname" . }}-configtx
+      containers:
+      - name: debug
+        image: alpine
+        imagePullPolicy: IfNotPresent
+        command: 
+        - sh
+        - -c
+        - |
+          apk --no-cache add tree
+          while true; do
+            sleep 15s
+          done
+        volumeMounts:
+        - mountPath: /shared
+          name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+        - mountPath: /config/a
+          name: {{ include "hyperledger-fabric.fullname" . }}-crypto-config
+        - mountPath: /config/b
+          name: {{ include "hyperledger-fabric.fullname" . }}-configtx                    
