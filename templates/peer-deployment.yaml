@@ -1,14 +1,36 @@
 {{/*
-      Iterate over each Org defined in cryptoconfig
-      This should match the Organizations defined in configtx
-      Because of ranges, need to explicitly reference root ($)
+    Need a way to number the ports of Peers
+    Each Peer requires 2 ports, let's give it space for 10
+    Each Org may have some number of Peers, let's give each Org 1000 ports (==100 Peers)
+    Can't assume that Orgs or Peers are numbered; though they are here
+    So we'll use a baseline and increment
 */}}
-{{- range $org := .Values.cryptoconfig.PeerOrgs }}
-{{- $name := $org.Name | lower }}
-apiVersion: apps/v1
-kind: Deployment
+{{- $orgPortBase := 30000 }}
+{{/*
+    Iterate over each Org defined in cryptoconfig
+    This should match the Organizations defined in configtx
+    Because of ranges, need to explicitly reference root ($)
+*/}}
+{{- range $i, $org := .Values.cryptoconfig.PeerOrgs }}
+{{- $orgName := $org.Name | lower }}
+{{/*
+    Iterate over the peers in each Organization
+    Number of peers is set in cryptoconfig.Template.Count
+    Need to disambiguate peers
+    Each is thus named by prefixing the iterator with 'peer'
+    And by using the Org's domain as defined in cryptoconfig
+    E.g. peerX.orgY.example.com
+*/}}
+{{- $peerPortBase := add $orgPortBase (mul 1000 $i ) }}
+{{- range $j, $peerID := until ( $org.Template.Count | int) }}
+{{- $peerPortBase := add $peerPortBase (mul 10 $j) }}
+{{- $gRPCPort     := add $peerPortBase 0 }}
+{{- $eventsPort   := add $peerPortBase 1 }}
+---
+apiVersion: v1
+kind: Service
 metadata:
-  name: {{ include "hyperledger-fabric.fullname" $ }}-org-{{ $name }}
+  name: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
   labels:
     app.kubernetes.io/name: {{ include "hyperledger-fabric.chart" $ }}
     app.kubernetes.io/version: {{ $.Chart.Version }}
@@ -16,7 +38,39 @@ metadata:
     chart: {{ include "hyperledger-fabric.chart" $ }}
     release: {{ $.Release.Name }}
     heritage: {{ $.Release.Service }}
-    component: org-{{ $name }}
+spec:
+  type: NodePort
+  selector:
+    app: {{ include "hyperledger-fabric.name" $ }}
+    chart: {{ include "hyperledger-fabric.chart" $ }}
+    release: {{ $.Release.Name }}
+    heritage: {{ $.Release.Service }}
+    component: {{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
+  ports:
+  - protocol: TCP
+    port: 7050
+    targetPort: 7050
+    nodePort: {{ $gRPCPort }}
+    name: grpc
+  - protocol: TCP
+    port: 7051
+    targetPort: 7051
+    nodePort: {{ $eventsPort }}
+    name: events
+...
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
+  labels:
+    app.kubernetes.io/name: {{ include "hyperledger-fabric.chart" $ }}
+    app.kubernetes.io/version: {{ $.Chart.Version }}
+    app: {{ include "hyperledger-fabric.name" $ }}
+    chart: {{ include "hyperledger-fabric.chart" $ }}
+    release: {{ $.Release.Name }}
+    heritage: {{ $.Release.Service }}
+    component: {{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
 spec:
   replicas: {{ $.Values.replicaCount }}
   selector:
@@ -25,7 +79,7 @@ spec:
       chart: {{ include "hyperledger-fabric.chart" $ }}
       release: {{ $.Release.Name }}
       heritage: {{ $.Release.Service }}
-      component: org-{{ $name }}
+      component: {{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
   template:
     metadata:
       labels:
@@ -33,7 +87,7 @@ spec:
         chart: {{ include "hyperledger-fabric.chart" $ }}
         release: {{ $.Release.Name }}
         heritage: {{ $.Release.Service }}
-        component: org-{{ $name }}
+        component: {{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
     spec:
       volumes:
       - name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
@@ -55,33 +109,26 @@ spec:
         - mountPath: /shared
           name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
       containers:
-{{/*
-        Iterate over the peers in each Organizations
-        Number of peers is set in cryptoconfig.Template.Count
-        Need to disambiguate peers
-        Each is thus named by prefixing the iterator with 'peer'
-        And by using the Org's domain as defined in cryptoconfig
-        E.g. peerX.orgY.example.com
-*/}}
-{{- range $i := until ( $org.Template.Count | int)}}
-      - name: {{/*{{ .Chart.Name }}-*/}}peer{{ $i }}
+      - name: {{/*{{ .Chart.Name }}-*/}}peer{{ $peerID }}
         image: "{{ $.Values.image.peer.repository }}:{{ $.Values.image.peer.tag }}"
         imagePullPolicy: {{ $.Values.image.peer.pullPolicy }}
         workingDir: /opt/gopath/src/github.com/hyperledger/fabric/peer
         command:
-        - "peer node start"
+        - peer
+        - node
+        - start
         env:
         - name: CORE_VM_ENDPOINT
           value: ///host/var/run/docker.sock
         - name: CORE_PEER_ID
-          value: peer{{ $i }}.{{ $org.Domain }}
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
         - name: CORE_PEER_ADDRESS
-          value: peer{{ $i }}.{{ $org.Domain }}:7051
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}:{{ $gRPCPort }}
         - name: CORE_PEER_GOSSIP_EXTERNALENDPOINT
-          value: peer{{ $i }}.{{ $org.Domain }}:7051
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}:{{ $eventsPort }}
         - name: CORE_PEER_GOSSIP_BOOTSTRAP
-{{/* TODO:dazwilkin temporarily use peer1 as the bootstrap for the other peers */}}
-          value: peer1.org1.example.com:7051
+          # TODO:dazwilkin temporarily use peer1 as the bootstrap for the other peers
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer1:7051
         - name: CORE_PEER_LOCALMSPID
           value: Org1MSP
         #- name: CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE
@@ -105,5 +152,8 @@ spec:
         volumeMounts:
         - mountPath: /shared
           name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+...
+{{- $peerPortBase := add $peerPortBase 10 }}
 {{- end }}
+{{- $orgPortBase := add $orgPortBase 1000 }}
 {{- end }}
