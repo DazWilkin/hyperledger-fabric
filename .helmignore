@@ -1,9 +1,9 @@
 # Debugging
 
 #bootstrap-deployment.yaml
-ca-deployment.yaml
-orderer-deployment.yaml
-peer-deployment.yaml
+#ca-deployment.yaml
+#orderer-deployment.yaml
+#peer-deployment.yaml
 
 .DS_Store
 # Common VCS dirs
