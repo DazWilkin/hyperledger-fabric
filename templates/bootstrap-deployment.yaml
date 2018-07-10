@@ -39,124 +39,170 @@ spec:
         configMap:
           name: {{ include "hyperledger-fabric.fullname" . }}-configtx
       initContainers:
-      - name: {{/*{{ .Chart.Name }}-*/}}get-binaries
-{{/* The script uses curl too; so switching to Alpine and install curl */}}
-        image: alpine
-        imagePullPolicy: IfNotPresent
-        command:
-        - ash
-        - -v
-        - -x
-        - -c
-        - |
-          echo Using Hyperledger Fabric bash installer to pull binaries
+{{/* 
+This Fabric script requires bash and uses curl too;
+So switching to Alpine (smaller than Debian) and installing bash and curl
+*/}}
+      # - name: {{/*{{ .Chart.Name }}-*/}}get-binaries
+      #   image: alpine
+      #   imagePullPolicy: IfNotPresent
+      #   command:
+      #   - ash
+      #   - -v
+      #   - -x
+      #   - -c
+      #   - |
+      #     echo Using Hyperledger Fabric bash installer to pull binaries
 
-          # Install curl
-          # Debian
-          #export DEBIAN_FRONTEND=noninteractive
-          #apt-get update && apt-get install -y curl
-          # Bash
-          apk update && apk add --no-cache bash curl
+      #     # Install curl
+      #     apk update && apk add --no-cache bash curl
 
-          # Use /shared as working directory
-          cd /shared
+      #     # Use /shared as working directory
+      #     cd /shared
 
-          # sed is used to overcome a bug in the script so as to not download Docker images
-          # bootstrap.sh is materialized to /tmp not to /shared
-          curl \
-          --silent \
-          --show-error \
-          --location \
-          https://goo.gl/6wtTN5 | \
-          sed \
-          --expression="s|DOCKER=true|DOCKER=false|g" \
-          --expression="s|SAMPLES=true|SAMPLES=false|g" | \
-          bash -s ${FABRIC_BINARIES_VERSION}
+      #     # sed is used to overcome a bug in the script so as to not download Docker images
+      #     curl \
+      #     --silent \
+      #     --show-error \
+      #     --location \
+      #     https://goo.gl/6wtTN5 | \
+      #     sed \
+      #     --expression="s|DOCKER=true|DOCKER=false|g" \
+      #     --expression="s|SAMPLES=true|SAMPLES=false|g" | \
+      #     bash -s ${FABRIC_BINARIES_VERSION}
           
-          if [ -f /shared/bin/configtxgen ] && [ -f /shared/bin/cryptogen ]
-          then
-            echo "configtxgen & cryptogen added to /shared"
-            touch /shared/binaries_downloaded
-            exit 0;
-          else
-            echo "Either configtxgen or cryptogen is missing"
-            exit 1;
-          fi
-          echo Done
-        env:
-        - name: FABRIC_BINARIES_VERSION
-          value: {{ .Values.fabric.binaries }}
-        volumeMounts:
-        - mountPath: /shared
-          name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
-      - name: {{/*{{ .Chart.Name }}-*/}}crypto-gen
-        image: alpine
+      #     if [ -f /shared/bin/configtxgen ] && [ -f /shared/bin/cryptogen ]
+      #     then
+      #       echo "configtxgen & cryptogen added to /shared"
+      #       touch /shared/binaries_downloaded
+      #       exit 0;
+      #     else
+      #       echo "Either configtxgen or cryptogen is missing"
+      #       exit 1;
+      #     fi
+      #     echo Done
+      #   env:
+      #   - name: FABRIC_BINARIES_VERSION
+      #     value: {{ .Values.fabric.binaries }}
+      #   volumeMounts:
+      #   - mountPath: /shared
+      #     name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+      - name: {{/*{{ .Chart.Name }}-*/}}cryptogen
+        image: gcr.io/dazwilkin-180709-fabric/cryptogen@sha256:ccbd9d94cb63d9e3228379eab379a70ed401b8dd89438c09f5bfd5f85eb9594f
         imagePullPolicy: IfNotPresent
-        command:
-        - ash
-        - -c
-        - |
-          echo Calling cryptogen
+        args:
+        - generate
+        - --config=/config/crypto-config.yaml
+        - --output=/shared/crypto-config
+        # image: alpine
+        # imagePullPolicy: IfNotPresent
+        # command:
+        # - ash
+        # - -c
+        # - |
+        #   echo Calling cryptogen
 
-          while [ ! -f /shared/bin/cryptogen ]; do
-            echo Awaiting cryptogen binary
-            sleep 15s
-          done
+        #   while [ ! -f /shared/bin/cryptogen ]; do
+        #     echo Awaiting cryptogen binary
+        #     sleep 15s
+        #   done
           
-          # Copy binary out of /shared
-          cp /shared/bin/cryptogen /tmp
+        #   # Copy binary out of /shared
+        #   cp /shared/bin/cryptogen /tmp
 
-          /tmp/cryptogen generate \
-          --config=/config/crypto-config.yaml \
-          --output=/shared/crypto-config
+        #   /tmp/cryptogen generate \
+        #   --config=/config/crypto-config.yaml \
+        #   --output=/shared/crypto-config
 
-          echo Done
+        #   echo Done
         volumeMounts:
         - mountPath: /shared
           name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
         - mountPath: /config
           name: {{ include "hyperledger-fabric.fullname" . }}-crypto-config
-      - name: {{/*{{ .Chart.Name }}-*/}}configtxgen
+      - name: {{/*{{ .Chart.Name }}-*/}}copy-config
         image: alpine
         imagePullPolicy: IfNotPresent
-        command:
-        - ash
-        - -c
-        - |
-          echo Calling configtxgen
+        args:
+        - cp
+        - /config/configtx.yaml
+        - /shared
+        volumeMounts:
+        - mountPath: /shared
+          name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+        - mountPath: /config
+          name: {{ include "hyperledger-fabric.fullname" . }}-configtx
+      # - name: configtxgen-0
+      #   image: bitnami/minideb:jessie
+      #   imagePullPolicy: IfNotPresent
+      #   command:
+      #   - bash
+      #   - -v
+      #   - -x
+      #   - -c
+      #   - |
+      #     echo Calling configtxgen
 
-          while [ ! -f /shared/bin/configtxgen ]; do
-            echo Awaiting configtxgen binary
-            sleep 15s
-          done
+      #     while [ ! -f /shared/bin/configtxgen ]; do
+      #       echo Awaiting configtxgen binary
+      #       sleep 15s
+      #     done
 
-          # Copy binary out of /shared
-          cp /shared/bin/configtxgen /tmp
+      #     /shared/bin/configtxgen -version
 
-          # Create Orderer Genesis Block
-          # FABRIC_CFG_PATH references location of configtxgen.yaml
-          # TwoOrgsOrdererGenesis must match configtx.yaml profile
-          echo Creating Orderer Genersis Block
+      #     # Create Orderer Genesis Block
+      #     # FABRIC_CFG_PATH references location of configtxgen.yaml
+      #     # TwoOrgsOrdererGenesis must match configtx.yaml profile
+      #     echo Creating Orderer Genesis Block
+      #     /shared/bin/configtxgen \
+      #     -profile ${ORDERER_PROFILE} \
+      #     -outputBlock /shared/${ARTIFACTS}/genesis.block #\
+      #     #-channelID ${CHANNEL_ID}
 
-          export FABRIC_CFG_PATH=/config && \
-          /tmp/configtxgen \
-          -profile ${ORDERER_PROFILE} \
-          -outputBlock /shared/${ARTIFACTS}/genesis.block \
-          -channelID ${CHANNEL_ID}
+      #     # Create Channel Configuration Transaction
+      #     echo Creating Channel Configuration Transaction
+      #     /shared/bin/configtxgen \
+      #     -profile ${CHANNEL_PROFILE} \
+      #     -outputCreateChannelTx /shared/${ARTIFACTS}/channel.tx \
+      #     -channelID ${CHANNEL_ID}
 
-          # Create Channel Configuration Transaction
-          echo Creating Channel Configuration Transaction
-          /tmp/configtxgen \
-          -profile ${CHANNEL_PROFILE} \
-          -outputCreateChannelTx /shared/channel-artifacts/channel.tx \
-          -channelID ${CHANNEL_ID}
-
-          echo Done
+      #     echo Done
+      #   env:
+      #   - name: ARTIFACTS
+      #     value: "channel-artifacts"
+      #   - name: FABRIC_CFG_PATH
+      #     value: "/config"
+      #   - name: CHANNEL_ID
+      #     value: channel
+      #   - name: CHANNEL_PROFILE
+      #     value: TwoOrgsChannel
+      #   - name: ORDERER_PROFILE
+      #     value: TwoOrgsOrdererGenesis
+      #   volumeMounts:
+      #   - mountPath: /shared
+      #     name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+      #   - mountPath: /config
+      #     name: {{ include "hyperledger-fabric.fullname" . }}-configtx
+      - name: {{/*{{ .Chart.Name }}-*/}}configtxgen-1
+        image: gcr.io/dazwilkin-180709-fabric/configtxgen@sha256:259d0e14adda457a94b5979800f19dc8170e702de1fc3a50424cb34d91dc7406
+        imagePullPolicy: IfNotPresent
+        #workingDir: /shared
+        args: 
+        - -profile
+        - $(ORDERER_PROFILE)
+        - -outputBlock
+        - /shared/$(ARTIFACTS)/genesis.block
+        # - -channelID
+        # - $(CHANNEL_ID)
         env:
-        - name: CHANNEL_ID
-          value: channel
-        - name: CHANNEL_PROFILE
-          value: TwoOrgsChannel
+        - name: ARTIFACTS
+          value: "." # Unable to create subdirectories "channel-artifacts"
+        - name: FABRIC_CFG_PATH
+          value: "/shared"
+        # - name: CHANNEL_ID
+        #   value: channel
+        # - name: CHANNEL_PROFILE
+        #   value: TwoOrgsChannel
         - name: ORDERER_PROFILE
           value: TwoOrgsOrdererGenesis
         volumeMounts:
@@ -164,32 +210,74 @@ spec:
           name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
         - mountPath: /config
           name: {{ include "hyperledger-fabric.fullname" . }}-configtx
+      - name: {{/*{{ .Chart.Name }}-*/}}configtxgen-2
+        image: gcr.io/dazwilkin-180709-fabric/configtxgen@sha256:259d0e14adda457a94b5979800f19dc8170e702de1fc3a50424cb34d91dc7406
+        imagePullPolicy: IfNotPresent
+        args:
+        - -profile
+        - $(CHANNEL_PROFILE)
+        - -outputCreateChannelTx
+        - /shared/$(ARTIFACTS)/channel.tx
+        - -channelID
+        - $(CHANNEL_ID)
+        env:
+        - name: ARTIFACTS
+          value: "." # Unable to create subdirectories "channel-artifacts"
+        - name: FABRIC_CFG_PATH
+          value: "/shared"
+        - name: CHANNEL_ID
+          value: channel
+        - name: CHANNEL_PROFILE
+          value: TwoOrgsChannel
+        # - name: ORDERER_PROFILE
+        #   value: TwoOrgsOrdererGenesis
+        volumeMounts:
+        - mountPath: /shared
+          name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+        - mountPath: /config
+          name: {{ include "hyperledger-fabric.fullname" . }}-configtx
+
 {{- range $org := .Values.configtx.Organizations }}
       - name: anchor-{{ $org.ID | lower }}
-        image: alpine
+        image: gcr.io/dazwilkin-180709-fabric/configtxgen@sha256:259d0e14adda457a94b5979800f19dc8170e702de1fc3a50424cb34d91dc7406
         imagePullPolicy: IfNotPresent
-        command:
-        - ash
-        - -c
-        - |
-          echo Define Anchor Peer for ${ORG_ID}
+        args:
+        - -profile
+        - $(CHANNEL_PROFILE)
+        - -outputAnchorPeersUpdate
+        - /shared/$(ARTIFACTS)/$(ORG_ID).anchors.tx
+        - -channelID
+        - $(CHANNEL_ID)
+        - -asOrg
+        - $(ORG_ID)
+        # image: alpine
+        # imagePullPolicy: IfNotPresent
+        # command:
+        # - ash
+        # - -c
+        # - |
+        #   echo Define Anchor Peer for ${ORG_ID}
 
-          while [ ! -f /shared/bin/configtxgen ]; do
-            echo Awaiting
-            sleep 15s
-          done
+        #   while [ ! -f /shared/bin/configtxgen ]; do
+        #     echo Awaiting
+        #     sleep 15s
+        #   done
           
-          # Copy binary out of /shared
-          cp /shared/bin/configtxgen /tmp
+        #   # Copy binary out of /shared
+        #   cp /shared/bin/configtxgen /tmp
 
-          /tmp/configtxgen \
-          -profile ${CHANNEL_PROFILE} \
-          -outputAnchorPeersUpdate ./channel-artifacts/${ORG_ID}.anchors.tx \
-          -channelID ${CHANNEL_ID} \
-          -asOrg ${ORG_ID}
+        #   /tmp/configtxgen \
+        #   -profile ${CHANNEL_PROFILE} \
+        #   -outputAnchorPeersUpdate ./channel-artifacts/${ORG_ID}.anchors.tx \
+        #   -channelID ${CHANNEL_ID} \
+        #   -asOrg ${ORG_ID}
 
-          echo Done
+        #   echo Done
         env:
+        - name: ARTIFACTS
+          value: "." # Unable to create subdirectories "channel-artifacts"
+        - name: FABRIC_CFG_PATH
+          value: "/shared"
         - name: CHANNEL_ID
           value: channel
         - name: CHANNEL_PROFILE
