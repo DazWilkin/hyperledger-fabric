@@ -61,7 +61,7 @@ spec:
         - name: ORDERER_GENERAL_GENESISMETHOD
           value: file
         - name: ORDERER_GENERAL_GENESISFILE
-          value: /shared/channel-artifacts/genesis.block
+          value: /shared/genesis.block
         - name: ORDERER_GENERAL_LOCALMSPID
           value: OrdererMSP
         - name: ORDERER_GENERAL_LOCALMSPDIR

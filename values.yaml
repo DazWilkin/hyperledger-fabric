@@ -8,6 +8,14 @@ fabric:
   binaries: "1.1.0"
 
 image:
+  cryptogen:
+    repository: gcr.io/dazwilkin-180710-fabric/cryptogen
+    tag: "1.1.0"
+    pullPolicy: IfNotPresent
+  configtxgen:
+    repository: gcr.io/dazwilkin-180710-fabric/configtxgen
+    tag: "1.1.0"
+    pullPolicy: IfNotPresent   
   nginx:
     repository: nginx
     tag: stable
