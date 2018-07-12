@@ -47,7 +47,7 @@ spec:
           -b admin:adminpw \
           -d
         ports:
-          - name: gprc
+          - name: grpc
             containerPort: 7054
             protocol: TCP
         volumeMounts:
