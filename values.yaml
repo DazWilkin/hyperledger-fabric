@@ -9,19 +9,23 @@ fabric:
 
 image:
   cryptogen:
-    repository: gcr.io/dazwilkin-180710-fabric/cryptogen
+    repository: gcr.io/{{hyperledger-fabric}}/cryptogen
     tag: "1.1.0"
     pullPolicy: IfNotPresent
   configtxgen:
-    repository: gcr.io/dazwilkin-180710-fabric/configtxgen
+    repository: gcr.io/{{hyperledger-fabric}}configtxgen
     tag: "1.1.0"
     pullPolicy: IfNotPresent   
-  nginx:
-    repository: nginx
-    tag: stable
-    pullPolicy: IfNotPresent
+  # nginx:
+  #   repository: nginx
+  #   tag: stable
+  #   pullPolicy: IfNotPresent
   ca:
     repository: hyperledger/fabric-ca
+    tag: "1.1.0"
+    pullPolicy: IfNotPresent
+  cli:
+    repository: hyperledger/fabric-tools
     tag: "1.1.0"
     pullPolicy: IfNotPresent
   orderer:
