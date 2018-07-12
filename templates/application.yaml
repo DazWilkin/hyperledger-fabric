@@ -17,6 +17,7 @@ spec:
   #   kind: Service
   #- group: apps
   -  kind: Deployment
+  -  kind: Job
   -  kind: Service
   -  kind: PersistentVolumeClaims
   version: "1.0.3"
