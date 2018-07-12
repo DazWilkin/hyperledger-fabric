@@ -1,3 +1,4 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -69,10 +70,37 @@ spec:
         - name: ORDERER_GENERAL_TLS_ENABLED
           value: "false"
         ports:
-          - name: gprc
+          - name: grpc
             containerPort: 7050
             protocol: TCP
         volumeMounts:
         - mountPath: /shared
           name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
-
+...
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hyperledger-fabric.fullname" . }}-orderer
+  labels:
+    app.kubernetes.io/name: {{ include "hyperledger-fabric.chart" . }}
+    app.kubernetes.io/version: {{ .Chart.Version }}
+    app: {{ include "hyperledger-fabric.name" . }}
+    chart: {{ include "hyperledger-fabric.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+    component: orderer
+spec:
+  type: NodePort
+  selector:
+    app: {{ .Chart.Name }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+    component: orderer
+  ports:
+  - protocol: TCP
+    port: 7050
+    targetPort: 7050
+    name: grpc
+...
