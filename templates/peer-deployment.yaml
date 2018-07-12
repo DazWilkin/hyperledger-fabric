@@ -4,6 +4,11 @@
     Each Org may have some number of Peers, let's give each Org 1000 ports (==100 Peers)
     Can't assume that Orgs or Peers are numbered; though they are here
     So we'll use a baseline and increment
+    We'll start numbering from $orgPortBase
+*/}}
+{{/* 
+    Should pull $orgPortBase into values.yaml
+    Used by both peer-deployment.yaml and cli-deployment.yaml
 */}}
 {{- $orgPortBase := 30000 }}
 {{/*
@@ -14,6 +19,14 @@
 {{- range $i, $org := .Values.cryptoconfig.PeerOrgs }}
 {{- $orgName := $org.Name | lower }}
 {{/*
+    Each Org is separated by 1000 (ports)
+    Was unable to use an accumulating variable: $orgPortBase := add $orgPortBase 1000
+    As the assignment creates a new local variable each time :-(
+    So, calculate the value using a range index ($i) and multiplying
+    Retain $orgPortBase during the iteration over peers to identify the Gossip bootstrap node|ports too
+*/}}
+{{- $orgPortBase := add $orgPortBase (mul 1000 $i ) }}
+{{/*
     Iterate over the peers in each Organization
     Number of peers is set in cryptoconfig.Template.Count
     Need to disambiguate peers
@@ -21,9 +34,8 @@
     And by using the Org's domain as defined in cryptoconfig
     E.g. peerX.orgY.example.com
 */}}
-{{- $peerPortBase := add $orgPortBase (mul 1000 $i ) }}
 {{- range $j, $peerID := until ( $org.Template.Count | int) }}
-{{- $peerPortBase := add $peerPortBase (mul 10 $j) }}
+{{- $peerPortBase := add $orgPortBase (mul 10 $j) }}
 {{- $gRPCPort     := add $peerPortBase 0 }}
 {{- $eventsPort   := add $peerPortBase 1 }}
 ---
@@ -45,7 +57,9 @@ spec:
     chart: {{ include "hyperledger-fabric.chart" $ }}
     release: {{ $.Release.Name }}
     heritage: {{ $.Release.Service }}
-    component: {{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
+    component: {{/*org-*/}}peer
+    org: {{ $orgName }}
+    peer: {{ $peerID | quote }}
   ports:
   - protocol: TCP
     port: 7050
@@ -70,7 +84,9 @@ metadata:
     chart: {{ include "hyperledger-fabric.chart" $ }}
     release: {{ $.Release.Name }}
     heritage: {{ $.Release.Service }}
-    component: {{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
+    component: {{/*org-*/}}peer
+    org: {{ $orgName }}
+    peer: {{ $peerID | quote }}
 spec:
   replicas: {{ $.Values.replicaCount }}
   selector:
@@ -79,7 +95,9 @@ spec:
       chart: {{ include "hyperledger-fabric.chart" $ }}
       release: {{ $.Release.Name }}
       heritage: {{ $.Release.Service }}
-      component: {{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
+      component: {{/*org-*/}}peer
+      org: {{ $orgName }}
+      peer: {{ $peerID | quote }}
   template:
     metadata:
       labels:
@@ -87,7 +105,9 @@ spec:
         chart: {{ include "hyperledger-fabric.chart" $ }}
         release: {{ $.Release.Name }}
         heritage: {{ $.Release.Service }}
-        component: {{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
+        component: {{/*org-*/}}peer
+        org: {{ $orgName }}
+        peer: {{ $peerID | quote }}
     spec:
       volumes:
       - name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
@@ -121,14 +141,22 @@ spec:
         - name: CORE_VM_ENDPOINT
           value: ///host/var/run/docker.sock
         - name: CORE_PEER_ID
-          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
+          value: {{/*{{ include "hyperledger-fabric.fullname" $ }}-*/}}{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
         - name: CORE_PEER_ADDRESS
-          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}:{{ $gRPCPort }}
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}:7050 #{{ $gRPCPort }}
         - name: CORE_PEER_GOSSIP_EXTERNALENDPOINT
-          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}:{{ $eventsPort }}
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}:7051 #{{ $eventsPort }}
         - name: CORE_PEER_GOSSIP_BOOTSTRAP
-          # TODO:dazwilkin temporarily use peer1 as the bootstrap for the other peers
-          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer1:7051
+          # Use peer0 as the bootstrap basis for the other peers
+          # peer0 will always be this org's first|base peer so it will be on $orgPortBase+0|1
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer0:{{ $orgPortBase }}
+{{/*
+        This value (CORE_PEER_LOCALMSPID) should change by Org
+        However, whereas the Peer Orgs are defined in crypto-config.yaml: name, domain..
+        The MSPID is defined in configtx.yaml: name, ID ...
+        How do these seemingly complementary values correspond
+        If equal why not in one file ???
+*/}}
         - name: CORE_PEER_LOCALMSPID
           value: Org1MSP
         #- name: CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE
@@ -142,18 +170,30 @@ spec:
           value: "false"
         - name: CORE_PEER_PROFILE_ENABLED
           value: "true"
+          # These environment values weren't used by the Fabric "First Tutorial" Example but are in the IBM Example
+        - name: CORE_PEER_LISTENADDRESS
+          value: 0.0.0.0:7050
+        - name: CORE_PEER_EVENTS_ADDRESS
+          value: 0.0.0.0:7051
+          # This one is make-or-break and definitely needed; does it need an external port too?
+        - name: CORE_PEER_CHAINCODELISTENADDRESS
+          value: 0.0.0.0:7052          
         ports:
-        - name: gprc
+        - name: rest
+          containerPort: 7050
+          protocol: TCP
+        - name: grpc
           containerPort: 7051
           protocol: TCP
-        - name: another
-          containerPort: 7053
+        - name: code
+          containerPort: 7052
           protocol: TCP
+        # - name: another
+        #   containerPort: 7053
+        #   protocol: TCP
         volumeMounts:
         - mountPath: /shared
           name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
 ...
-{{- $peerPortBase := add $peerPortBase 10 }}
 {{- end }}
-{{- $orgPortBase := add $orgPortBase 1000 }}
 {{- end }}
