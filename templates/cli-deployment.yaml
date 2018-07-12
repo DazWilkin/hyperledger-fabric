@@ -1,0 +1,91 @@
+{{/* 
+    Should pull $orgPortBase into values.yaml
+    Used by both peer-deployment.yaml and cli-deployment.yaml
+*/}}
+{{- $orgPortBase := 30000 }}
+{{- range $i, $org := .Values.cryptoconfig.PeerOrgs }}
+{{- $orgName := $org.Name | lower }}
+{{/*
+    Used to calculate peer0's ports
+*/}}
+{{- $orgPortBase := add $orgPortBase (mul 1000 $i ) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-cli
+  labels:
+    app.kubernetes.io/name: {{ include "hyperledger-fabric.chart" $ }}
+    app.kubernetes.io/version: {{ $.Chart.Version }}
+    app: {{ include "hyperledger-fabric.name" $ }}
+    chart: {{ include "hyperledger-fabric.chart" $ }}
+    release: {{ $.Release.Name }}
+    heritage: {{ $.Release.Service }}
+    component: cli
+    org: {{ $orgName }}
+spec:
+  replicas: {{ $.Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "hyperledger-fabric.name" $ }}
+      chart: {{ include "hyperledger-fabric.chart" $ }}
+      release: {{ $.Release.Name }}
+      heritage: {{ $.Release.Service }}
+      component: cli
+      org: {{ $orgName }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "hyperledger-fabric.name" $ }}
+        chart: {{ include "hyperledger-fabric.chart" $ }}
+        release: {{ $.Release.Name }}
+        heritage: {{ $.Release.Service }}
+        component: cli
+        org: {{ $orgName }}
+    spec:
+      volumes:
+      - name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+        persistentVolumeClaim:
+          claimName: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+      initContainers:
+      - name: await-bootstrapped
+        image: busybox
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - |
+          while [! -f /shared/bootstrapped ]; do
+            echo Awaiting /shared/bootstrapped
+            sleep 15s
+          done
+        volumeMounts:
+        - mountPath: /shared
+          name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+      containers:
+      - name: {{/*{{ $.Chart.Name }}-*/}}cli
+        image: "{{ $.Values.image.cli.repository }}:{{ $.Values.image.cli.tag }}"
+        imagePullPolicy: {{ $.Values.image.cli.pullPolicy }}
+        workingDir: /opt/gopath/src/github.com/hyperledger/fabric/peer
+        command:
+        - bash
+        - -c
+        - |
+          while true; do sleep 15s; done
+        env:
+        - name: GOPATH
+          value: /opt/gopath
+        - name: CORE_PEER_ID
+          value: cli
+        - name: CORE_PEER_ADDRESS
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer0:7050 #{{ $orgPortBase }}
+        - name: CORE_PEER_LOCALMSPID
+          value: Org1MSP
+        - name: CORE_TLS_ENABLED
+          value: "false"
+
+        volumeMounts:
+        - mountPath: /shared
+          name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+...
+{{- end }}
