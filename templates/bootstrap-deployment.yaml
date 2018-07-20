@@ -34,7 +34,7 @@ spec:
 
 {{/*
       Here is a set of initContainers
-      These are run sequentially xth completes before (x+1)th begins
+      These are run sequentially x-th completes before (x+1)th begins
 */}}
 
       initContainers:
