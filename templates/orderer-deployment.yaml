@@ -52,6 +52,7 @@ spec:
       - name: {{/*{{ .Chart.Name }}-*/}}orderer
         image: "{{ .Values.image.orderer.repository }}:{{ .Values.image.orderer.tag }}"
         imagePullPolicy: {{ .Values.image.orderer.pullPolicy }}
+        workingDir: /opt/gopath/src/github.com/hyperledger/fabric
         command:
         - orderer
         env:
