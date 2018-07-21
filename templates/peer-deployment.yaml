@@ -38,6 +38,17 @@
 {{- $peerPortBase := add $orgPortBase (mul 10 $j) }}
 {{- $gRPCPort     := add $peerPortBase 0 }}
 {{- $eventsPort   := add $peerPortBase 1 }}
+{{/*
+    Various permutations of the Peer's ID, name and fullname
+    And the Org's name and fullname are required
+    Unclear how best to generalize the domain name (example.com)
+    orgFullName  == orgY.example.com
+    peerName     == peer0, peer1, ... peerX
+    peerFullName == peerX.orgY.example.com
+*/}}
+{{- $orgFullName  := printf "%s.example.com" $orgName }}
+{{- $peerName     := printf "peer%d" $peerID }}
+{{- $peerFullName := printf "%s.%s" $peerName $orgFullName }}
 ---
 apiVersion: v1
 kind: Service
@@ -57,18 +68,18 @@ spec:
     chart: {{ include "hyperledger-fabric.chart" $ }}
     release: {{ $.Release.Name }}
     heritage: {{ $.Release.Service }}
-    component: {{/*org-*/}}peer
+    component: peer
     org: {{ $orgName }}
     peer: {{ $peerID | quote }}
   ports:
   - protocol: TCP
-    port: 7050
-    targetPort: 7050
+    port: 7051
+    targetPort: 7051
     nodePort: {{ $gRPCPort }}
     name: grpc
   - protocol: TCP
-    port: 7051
-    targetPort: 7051
+    port: 7053
+    targetPort: 7053
     nodePort: {{ $eventsPort }}
     name: events
 ...
@@ -76,7 +87,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
+  name: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-{{ $peerName }}
   labels:
     app.kubernetes.io/name: {{ include "hyperledger-fabric.chart" $ }}
     app.kubernetes.io/version: {{ $.Chart.Version }}
@@ -84,7 +95,7 @@ metadata:
     chart: {{ include "hyperledger-fabric.chart" $ }}
     release: {{ $.Release.Name }}
     heritage: {{ $.Release.Service }}
-    component: {{/*org-*/}}peer
+    component: peer
     org: {{ $orgName }}
     peer: {{ $peerID | quote }}
 spec:
@@ -95,7 +106,7 @@ spec:
       chart: {{ include "hyperledger-fabric.chart" $ }}
       release: {{ $.Release.Name }}
       heritage: {{ $.Release.Service }}
-      component: {{/*org-*/}}peer
+      component: peer
       org: {{ $orgName }}
       peer: {{ $peerID | quote }}
   template:
@@ -105,7 +116,7 @@ spec:
         chart: {{ include "hyperledger-fabric.chart" $ }}
         release: {{ $.Release.Name }}
         heritage: {{ $.Release.Service }}
-        component: {{/*org-*/}}peer
+        component: peer
         org: {{ $orgName }}
         peer: {{ $peerID | quote }}
     spec:
@@ -121,7 +132,7 @@ spec:
         - sh
         - -c
         - |
-          while [! -f /shared/bootstrapped ]; do
+          while [ ! -f /shared/bootstrapped ]; do
             echo Awaiting /shared/bootstrapped
             sleep 15s
           done
@@ -129,7 +140,7 @@ spec:
         - mountPath: /shared
           name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
       containers:
-      - name: {{/*{{ .Chart.Name }}-*/}}peer{{ $peerID }}
+      - name: {{ $peerName }}
         image: "{{ $.Values.image.peer.repository }}:{{ $.Values.image.peer.tag }}"
         imagePullPolicy: {{ $.Values.image.peer.pullPolicy }}
         workingDir: /opt/gopath/src/github.com/hyperledger/fabric/peer
@@ -141,15 +152,17 @@ spec:
         - name: CORE_VM_ENDPOINT
           value: ///host/var/run/docker.sock
         - name: CORE_PEER_ID
-          value: {{/*{{ include "hyperledger-fabric.fullname" $ }}-*/}}{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
+          value: {{ $orgName }}-{{ $peerName }}
         - name: CORE_PEER_ADDRESS
-          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}:7050 #{{ $gRPCPort }}
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-{{ $peerName }}:7051 #{{ $gRPCPort }}
         - name: CORE_PEER_GOSSIP_EXTERNALENDPOINT
-          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}:7051 #{{ $eventsPort }}
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-{{ $peerName }}:7053 #{{ $eventsPort }}
         - name: CORE_PEER_GOSSIP_BOOTSTRAP
-          # Use peer0 as the bootstrap basis for the other peers
-          # peer0 will always be this org's first|base peer so it will be on $orgPortBase+0|1
-          value: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer0:{{ $orgPortBase }}
+{{/*
+        Use peer0 as the bootstrap basis for the other peers
+        peer0 will always be this org's first|base peer so it will be on $orgPortBase+0|1
+*/}}
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-peer0:7051 #{{ $orgPortBase }}
 {{/*
         This value (CORE_PEER_LOCALMSPID) should change by Org
         However, whereas the Peer Orgs are defined in crypto-config.yaml: name, domain..
@@ -158,8 +171,7 @@ spec:
         If equal why not in one file ???
 */}}
         - name: CORE_PEER_LOCALMSPID
-          value: Org1MSP
-        #- name: CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE
+          value: {{ printf "%sMSP" $org.Name }} #Org1MSP
         - name: CORE_LOGGING_LEVEL
           value: INFO
         - name: CORE_TLS_ENABLED
@@ -172,25 +184,25 @@ spec:
           value: "true"
           # These environment values weren't used by the Fabric "First Tutorial" Example but are in the IBM Example
         - name: CORE_PEER_LISTENADDRESS
-          value: 0.0.0.0:7050
-        - name: CORE_PEER_EVENTS_ADDRESS
           value: 0.0.0.0:7051
+        - name: CORE_PEER_EVENTS_ADDRESS
+          value: 0.0.0.0:7053
           # This one is make-or-break and definitely needed; does it need an external port too?
         - name: CORE_PEER_CHAINCODELISTENADDRESS
-          value: 0.0.0.0:7052          
+          value: 0.0.0.0:7052
+          # This one is to overcome the error message of "Received AliveMessage from a peer with the sampe PKI-ID as myself"
+        - name: CORE_PEER_MSPCONFIGPATH
+          value: /shared/crypto-config/peerOrganizations/{{ $orgFullName }}/peers/{{ $peerFullName }}/msp/
         ports:
-        - name: rest
-          containerPort: 7050
-          protocol: TCP
         - name: grpc
           containerPort: 7051
           protocol: TCP
         - name: code
           containerPort: 7052
           protocol: TCP
-        # - name: another
-        #   containerPort: 7053
-        #   protocol: TCP
+        - name: events
+          containerPort: 7053
+          protocol: TCP
         volumeMounts:
         - mountPath: /shared
           name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
