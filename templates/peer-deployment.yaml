@@ -140,7 +140,7 @@ spec:
         - mountPath: /shared
           name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
       containers:
-      - name: {{ $peerName }}
+      - name: peer{{/* $peerName */}}
         image: "{{ $.Values.image.peer.repository }}:{{ $.Values.image.peer.tag }}"
         imagePullPolicy: {{ $.Values.image.peer.pullPolicy }}
         workingDir: /opt/gopath/src/github.com/hyperledger/fabric/peer
