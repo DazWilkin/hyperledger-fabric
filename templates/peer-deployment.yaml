@@ -124,12 +124,18 @@ spec:
       - name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
         persistentVolumeClaim:
           claimName: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+{{/*
+        Peers use the Docker Engine socket to deploy Chaincode in containers
+*/}}          
+      - name: dockersocket
+        hostPath:
+          path: /var/run/docker.sock
       initContainers:
       - name: await-bootstrapped
         image: busybox
         imagePullPolicy: IfNotPresent
         command:
-        - sh
+        - ash
         - -c
         - |
           while [ ! -f /shared/bootstrapped ]; do
@@ -148,9 +154,13 @@ spec:
         - peer
         - node
         - start
+        args:
+        - --orderer=$(ORDERER_URL)
         env:
+        - name: ORDERER_URL
+          value: {{ include "hyperledger-fabric.fullname" $ }}-orderer:7050
         - name: CORE_VM_ENDPOINT
-          value: ///host/var/run/docker.sock
+          value: unix:///host/var/run/docker.sock
         - name: CORE_PEER_ID
           value: {{ $orgName }}-{{ $peerName }}
         - name: CORE_PEER_ADDRESS
@@ -206,6 +216,8 @@ spec:
         volumeMounts:
         - mountPath: /shared
           name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+        - mountPath: /host/var/run/docker.sock
+          name: dockersocket          
 ...
 {{- end }}
 {{- end }}
