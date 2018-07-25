@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "hyperledger-fabric.fullname" . }}-test-crypto-config
+  annotations:
+    "helm.sh/hook": test-success
+spec:
+  volumes:
+  - name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+    persistentVolumeClaim:
+      claimName: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+  containers:
+  - name: test-crypto-config
+{{/*
+        Yes, Bash
+*/}}
+    image: bash
+    imagePullPolicy: IfNotPresent
+    command:
+    - bash
+    - -c
+    - |
+      #!/usr/bin/env bash
+      echo "test-crypto-config: starting"
+      errors=()
+      if [ ! -d /shared/crypto-config ]; then
+        errors+=("crypto-config")
+      else  
+        if [ ! -d /shared/crypto-config/ordererOrganizations ]; then
+          errors+=("ordererOrganizations")
+        else  
+          if [ ! -d /shared/crypto-config/ordererOrganizations/example.com ]; then
+            errors+=("example.com")
+          else  
+            if [ ! -d /shared/crypto-config/ordererOrganizations/example.com/ca ]; then
+              errors+=("example.com/ca")
+            fi
+            if [ ! -d /shared/crypto-config/ordererOrganizations/example.com/msp ]; then
+              errors+=("example.com/msp")
+            else  
+              if [ ! -d /shared/crypto-config/ordererOrganizations/example.com/msp/admincerts ]; then
+                errors+=("admincerts")
+              fi
+              if [ ! -d /shared/crypto-config/ordererOrganizations/example.com/msp/cacerts ]; then
+                errors+=("msp/cacerts")
+              fi
+              if [ ! -d /shared/crypto-config/ordererOrganizations/example.com/msp/tlscacerts ]; then
+                errors+=("msp/tlscacerts")
+              fi
+            fi
+            if [ ! -d /shared/crypto-config/ordererOrganizations/example.com/orderers ]; then
+              errors+=("orderers")
+            else  
+              if [ ! -d /shared/crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com ]; then
+                errors+=("orderer.example.com")
+              else
+                if [ ! -d /shared/crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/msp ]; then
+                  errors+=("orderer.example.com/msp")
+                else
+                  if [ ! -d /shared/crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/msp/admincerts ]; then
+                    errors+=("orderer.example.com/msp/admincerts")
+                  fi
+                  if [ ! -d /shared/crypto-config/ordererOrganizations/example.com/orderers/orderer.example.com/msp/keystore ]; then
+                    errors+=("orderer.example.com/msp/keystore")
+                  fi
+                fi
+              fi
+            fi
+          fi
+        fi
+      fi
+      if [ ${#errors[@]} -eq 0 ]; then
+        # 0 == All directories present and accounted for || Good
+        exit 0
+      else
+        # Enumerate the missing directories
+        for i in "${!errors[@]}"; do
+          echo "missing: ${errors[$i]}"
+        done
+        # 1 == At least one directory is missing || Bad
+        exit 1
+      fi
+      echo "test-crypto-config: stopping"
+    env:
+    volumeMounts:
+    - mountPath: /shared
+      name: {{ include "hyperledger-fabric.fullname" . }}-shared-pvc
+  restartPolicy: Never
