@@ -41,7 +41,7 @@ spec:
         - sh
         - -c
         - |
-          while [! -f /shared/bootstrapped ]; do
+          while [ ! -f /shared/bootstrapped ]; do
             echo Awaiting /shared/bootstrapped
             sleep 15s
           done
