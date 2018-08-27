@@ -5,32 +5,33 @@
 replicaCount: 1
 
 fabric:
-  binaries: "1.1.0"
+  binaries: "x86_64-1.1.1"
 
 image:
   cryptogen:
-    repository: gcr.io/dazwilkin-180720-fabric/cryptogen
-    tag: "1.1.0"
+    repository: gcr.io/dazwilkin-180825-fabric/cryptogen
+    tag: "1.1.1"
     pullPolicy: IfNotPresent
   configtxgen:
-    repository: gcr.io/dazwilkin-180720-fabric/configtxgen
-    tag: "1.1.0"
+    repository: gcr.io/dazwilkin-180825-fabric/configtxgen
+    tag: "1.1.1"
     pullPolicy: IfNotPresent   
   ca:
+    # Is not built as part of Hyperledger Fabric build
     repository: hyperledger/fabric-ca
     tag: "1.1.0"
     pullPolicy: IfNotPresent
   cli:
     repository: hyperledger/fabric-tools
-    tag: "1.1.0"
+    tag: "x86_64-1.1.1"
     pullPolicy: IfNotPresent
   orderer:
     repository: hyperledger/fabric-orderer
-    tag: "1.1.0"
+    tag: "x86_64-1.1.1"
     pullPolicy: IfNotPresent
   peer:
     repository: hyperledger/fabric-peer
-    tag: "1.1.0"
+    tag: "x86_64-1.1.1"
     pullPolicy: IfNotPresent
 
 nameOverride: ""
