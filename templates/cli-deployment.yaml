@@ -1,14 +1,8 @@
-{{/* 
-    Should pull $orgPortBase into values.yaml
-    Used by both peer-deployment.yaml and cli-deployment.yaml
-*/}}
-{{- $orgPortBase := 30000 }}
-{{- range $i, $org := .Values.cryptoconfig.PeerOrgs }}
+ {{- range $i, $org := .Values.cryptoconfig.PeerOrgs }}
 {{- $orgName := $org.Name | lower }}
 {{/*
     Used to calculate peer0's ports
 */}}
-{{- $orgPortBase := add $orgPortBase (mul 1000 $i ) }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -47,6 +41,12 @@ spec:
       - name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
         persistentVolumeClaim:
           claimName: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+{{/*
+        Peers use the Docker Engine socket to deploy Chaincode in containers
+*/}}          
+      - name: dockersocket
+        hostPath:
+          path: /var/run/docker.sock
       initContainers:
       - name: await-bootstrapped
         image: busybox
@@ -75,10 +75,12 @@ spec:
         env:
         - name: GOPATH
           value: /opt/gopath
+        - name: CORE_VM_ENDPOINT
+          value: unix:///host/var/run/docker.sock
         - name: CORE_PEER_ID
           value: cli
         - name: CORE_PEER_ADDRESS
-          value: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-peer0:7051 #{{ $orgPortBase }}
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-peer0:7051
 {{/*
         This value (CORE_PEER_LOCALMSPID) should change by Org
         However, whereas the Peer Orgs are defined in crypto-config.yaml: name, domain..
@@ -94,5 +96,7 @@ spec:
         volumeMounts:
         - mountPath: /shared
           name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
+        - mountPath: /host/var/run/docker.sock
+          name: dockersocket          
 ...
 {{- end }}

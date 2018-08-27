@@ -1,31 +1,10 @@
 {{/*
-    Need a way to number the ports of Peers
-    Each Peer requires 2 ports, let's give it space for 10
-    Each Org may have some number of Peers, let's give each Org 1000 ports (==100 Peers)
-    Can't assume that Orgs or Peers are numbered; though they are here
-    So we'll use a baseline and increment
-    We'll start numbering from $orgPortBase
-*/}}
-{{/* 
-    Should pull $orgPortBase into values.yaml
-    Used by both peer-deployment.yaml and cli-deployment.yaml
-*/}}
-{{- $orgPortBase := 30000 }}
-{{/*
     Iterate over each Org defined in cryptoconfig
     This should match the Organizations defined in configtx
     Because of ranges, need to explicitly reference root ($)
 */}}
 {{- range $i, $org := .Values.cryptoconfig.PeerOrgs }}
 {{- $orgName := $org.Name | lower }}
-{{/*
-    Each Org is separated by 1000 (ports)
-    Was unable to use an accumulating variable: $orgPortBase := add $orgPortBase 1000
-    As the assignment creates a new local variable each time :-(
-    So, calculate the value using a range index ($i) and multiplying
-    Retain $orgPortBase during the iteration over peers to identify the Gossip bootstrap node|ports too
-*/}}
-{{- $orgPortBase := add $orgPortBase (mul 1000 $i ) }}
 {{/*
     Iterate over the peers in each Organization
     Number of peers is set in cryptoconfig.Template.Count
@@ -35,9 +14,6 @@
     E.g. peerX.orgY.example.com
 */}}
 {{- range $j, $peerID := until ( $org.Template.Count | int) }}
-{{- $peerPortBase := add $orgPortBase (mul 10 $j) }}
-{{- $gRPCPort     := add $peerPortBase 0 }}
-{{- $eventsPort   := add $peerPortBase 1 }}
 {{/*
     Various permutations of the Peer's ID, name and fullname
     And the Org's name and fullname are required
@@ -53,7 +29,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-peer{{ $peerID }}
+  name: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-peer{{ $peerID }}
   labels:
     app.kubernetes.io/name: {{ include "hyperledger-fabric.chart" $ }}
     app.kubernetes.io/version: {{ $.Chart.Version }}
@@ -61,6 +37,9 @@ metadata:
     chart: {{ include "hyperledger-fabric.chart" $ }}
     release: {{ $.Release.Name }}
     heritage: {{ $.Release.Service }}
+    component: peer
+    org: {{ $orgName }}
+    peer: {{ $peerID | quote }}
 spec:
   type: NodePort
   selector:
@@ -75,19 +54,21 @@ spec:
   - protocol: TCP
     port: 7051
     targetPort: 7051
-    nodePort: {{ $gRPCPort }}
-    name: grpc
+    name: request
+  - protocol: TCP
+    port: 7052
+    targetPort: 7052
+    name: chaincode
   - protocol: TCP
     port: 7053
     targetPort: 7053
-    nodePort: {{ $eventsPort }}
     name: events
 ...
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "hyperledger-fabric.fullname" $ }}-{{/*org-*/}}{{ $orgName }}-{{ $peerName }}
+  name: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-{{ $peerName }}
   labels:
     app.kubernetes.io/name: {{ include "hyperledger-fabric.chart" $ }}
     app.kubernetes.io/version: {{ $.Chart.Version }}
@@ -120,6 +101,10 @@ spec:
         org: {{ $orgName }}
         peer: {{ $peerID | quote }}
     spec:
+{{/*
+      hostname: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-{{ $peerName }}
+      subdomain: example
+*/}}      
       volumes:
       - name: {{ include "hyperledger-fabric.fullname" $ }}-shared-pvc
         persistentVolumeClaim:
@@ -161,18 +146,27 @@ spec:
           value: {{ include "hyperledger-fabric.fullname" $ }}-orderer:7050
         - name: CORE_VM_ENDPOINT
           value: unix:///host/var/run/docker.sock
+{{/*
+        [180806] Added per Yacov's suggestion on Fabric List
+*/}}
+        - name: CORE_VM_DOCKER_ATTACHSTDOUT
+          value: "true"
+{{/*
+        [180815] Added per Yacov's suggestion by Email
+*/}}
+        - name: CORE_CHAINCODE_LOGGING_SHIM
+          value: INFO
         - name: CORE_PEER_ID
           value: {{ $orgName }}-{{ $peerName }}
         - name: CORE_PEER_ADDRESS
-          value: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-{{ $peerName }}:7051 #{{ $gRPCPort }}
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-{{ $peerName }}:7051
         - name: CORE_PEER_GOSSIP_EXTERNALENDPOINT
-          value: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-{{ $peerName }}:7053 #{{ $eventsPort }}
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-{{ $peerName }}:7053
         - name: CORE_PEER_GOSSIP_BOOTSTRAP
 {{/*
         Use peer0 as the bootstrap basis for the other peers
-        peer0 will always be this org's first|base peer so it will be on $orgPortBase+0|1
 */}}
-          value: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-peer0:7051 #{{ $orgPortBase }}
+          value: {{ include "hyperledger-fabric.fullname" $ }}-{{ $orgName }}-peer0:7051
 {{/*
         This value (CORE_PEER_LOCALMSPID) should change by Org
         However, whereas the Peer Orgs are defined in crypto-config.yaml: name, domain..
